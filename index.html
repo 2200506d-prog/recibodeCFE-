@@ -1,47 +1,49 @@
-
-       <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Analizador CFE Universal</title>
+    <title>Analizador CFE Multi-Recibo</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body class="bg-gray-100 min-h-screen p-6">
-    <div class="max-w-4xl mx-auto bg-white p-8 rounded-2xl shadow-lg">
-        <h1 class="text-2xl font-bold text-green-700 mb-6 text-center">Analizador de Recibos CFE</h1>
-        <input type="file" id="pdfInput" accept="application/pdf" class="block w-full text-sm text-gray-500 mb-8 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-green-50 file:text-green-700 hover:file:bg-green-100 cursor-pointer"/>
+<body class="bg-slate-50 min-h-screen p-4">
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-2xl shadow-xl border">
+        <h1 class="text-2xl font-black text-green-700 mb-4 text-center">Analizador de Consumo CFE</h1>
+        
+        <input type="file" id="pdfInput" accept="application/pdf" class="w-full p-3 border-2 border-dashed border-green-200 rounded-lg mb-6 cursor-pointer hover:bg-green-50 transition"/>
 
-        <div id="dashboard" class="hidden space-y-6">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="bg-blue-50 p-4 rounded-xl border border-blue-200">
-                    <p class="text-xs font-bold text-blue-500 uppercase">Consumo Actual</p>
-                    <p id="txtKwh" class="text-3xl font-black text-blue-900">--</p>
+        <div id="dashboard" class="hidden animate-in fade-in duration-500">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <div class="p-4 bg-blue-600 text-white rounded-xl shadow-lg">
+                    <p class="text-xs font-bold opacity-80 uppercase">Consumo del Periodo</p>
+                    <p id="resKwh" class="text-4xl font-black italic">--</p>
+                    <p class="text-[10px] mt-1 italic">Kilovatios-hora (kWh)</p>
                 </div>
-                <div class="bg-green-50 p-4 rounded-xl border border-green-200">
-                    <p class="text-xs font-bold text-green-500 uppercase">Total a Pagar</p>
-                    <p id="txtPago" class="text-3xl font-black text-green-900">--</p>
+                <div class="p-4 bg-green-600 text-white rounded-xl shadow-lg">
+                    <p class="text-xs font-bold opacity-80 uppercase">Total a Pagar</p>
+                    <p id="resPago" class="text-4xl font-black italic">--</p>
+                    <p class="text-[10px] mt-1 italic">Pesos Mexicanos (MXN)</p>
                 </div>
-                <div class="bg-purple-50 p-4 rounded-xl border border-purple-200">
-                    <p class="text-xs font-bold text-purple-500 uppercase">Periodo</p>
-                    <p id="txtPeriodo" class="text-sm font-bold text-purple-900">--</p>
+                <div class="p-4 bg-slate-800 text-white rounded-xl shadow-lg">
+                    <p class="text-xs font-bold opacity-80 uppercase">Periodo Facturado</p>
+                    <p id="resPeriodo" class="text-sm font-bold mt-2">--</p>
                 </div>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div class="bg-white p-4 rounded-xl border border-gray-200">
-                    <h3 class="text-sm font-bold text-gray-500 mb-4 uppercase">Gráfica de Consumo</h3>
-                    <div class="h-64"><canvas id="grafica"></canvas></div>
+                <div class="bg-white p-4 rounded-xl border-2 border-slate-100 shadow-sm">
+                    <h3 class="font-bold text-slate-700 mb-4 flex items-center">📊 Gráfica de Historial</h3>
+                    <div class="h-64"><canvas id="graficaConsumo"></canvas></div>
                 </div>
-                <div class="bg-white p-4 rounded-xl border border-gray-200">
-                    <h3 class="text-sm font-bold text-gray-500 mb-4 uppercase">Detalle Histórico</h3>
-                    <div class="overflow-y-auto h-64">
+                <div class="bg-white p-4 rounded-xl border-2 border-slate-100 shadow-sm">
+                    <h3 class="font-bold text-slate-700 mb-4">📜 Detalle por Periodo</h3>
+                    <div class="overflow-hidden rounded-lg border">
                         <table class="w-full text-left text-sm">
-                            <thead class="bg-gray-50">
-                                <tr><th class="p-2">Periodo</th><th class="p-2">Consumo</th></tr>
+                            <thead class="bg-slate-50 font-bold text-slate-600">
+                                <tr><th class="p-3">Periodo</th><th class="p-3 text-right">Consumo</th></tr>
                             </thead>
-                            <tbody id="tablaHistorial"></tbody>
+                            <tbody id="tablaCuerpo" class="divide-y"></tbody>
                         </table>
                     </div>
                 </div>
@@ -51,64 +53,83 @@
 
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-        let chart;
+        let miGrafica = null;
 
         document.getElementById('pdfInput').addEventListener('change', async (e) => {
             const file = e.target.files[0];
+            if (!file) return;
+
+            // Reset de interfaz para evitar mostrar datos viejos
+            document.getElementById('dashboard').classList.add('hidden');
+            document.getElementById('tablaCuerpo').innerHTML = "";
+
             const reader = new FileReader();
             reader.onload = async function() {
-                const pdf = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
-                let fullText = "";
-                for(let i=1; i<=pdf.numPages; i++) {
+                const typedarray = new Uint8Array(this.result);
+                const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                let texto = "";
+                
+                for(let i=1; i <= pdf.numPages; i++) {
                     const page = await pdf.getPage(i);
                     const content = await page.getTextContent();
-                    fullText += content.items.map(s => s.str).join(" ") + "\n";
+                    texto += content.items.map(s => s.str).join(" ") + "\n";
                 }
-                procesar(fullText);
+                extraer(texto);
             };
             reader.readAsArrayBuffer(file);
         });
 
-        function procesar(texto) {
-            // 1. Extraer Pago
-            const pago = texto.match(/TOTAL A PAGAR:\s*\$?([\d,]+)/i)?.[1] || "Ver Recibo";
-            
-            // 2. Extraer Consumo Actual
-            const kwh = texto.match(/Energia\s*\(kWh\).*?(\d+)\s*\n/i)?.[1] || 
-                        texto.match(/Total\s*periodo\s*","\s*(\d+)/i)?.[1] || 
-                        texto.match(/(\d+)\s*kWh/i)?.[1] || "0";
+        function extraer(t) {
+            // 1. Extraer Total (Busca el número tras "TOTAL A PAGAR")
+            const pagoMatch = t.match(/TOTAL A PAGAR[:\s]*\$?\s*([\d,]+)/i);
+            const pago = pagoMatch ? `$${pagoMatch[1]}` : "No detectado";
+
+            // 2. Extraer Consumo Actual (Busca después de Energia (kWh) o Total periodo)
+            const kwhMatch = t.match(/Total\s*periodo\s*.*?(\d+)/i) || 
+                             t.match(/Energia\s*\(kWh\).*?(\d+)/i) ||
+                             t.match(/(\d+)\s*kWh/i);
+            const kwh = kwhMatch ? kwhMatch[1] : "0";
 
             // 3. Extraer Periodo Principal
-            const periodo = texto.match(/PERIODO FACTURADO:\s*([\d\s\w-]+)/i)?.[1] || "No detectado";
+            const perMatch = t.match(/PERIODO FACTURADO[:\s]*([\d\sA-Z-]{10,30})/i);
+            const periodo = perMatch ? perMatch[1].trim() : "Ver en recibo";
 
-            // 4. Extraer Tabla de Historial (Busca bloques de periodos y kWh)
-            const regexHistorial = /(?:del\s)?(\d{2}\s[A-Z]{3}\s\d{2}).*?(\d{1,4})\s*(?:\$|MXN)/gi;
-            let match;
+            // 4. Extraer Tabla de Historial
+            // Buscamos patrones de "del [FECHA] al [FECHA] [NUMERO]"
+            const regexHis = /(?:del\s+)?(\d{2}\s[A-Z]{3}\s\d{2}).*?(\d{1,4})\s*(?:\$|MXN)/gi;
+            let m;
             let labels = [];
             let valores = [];
-            let htmlTabla = "";
+            let rows = "";
 
-            while ((match = regexHistorial.exec(texto)) !== null) {
-                labels.unshift(match[1]);
-                valores.unshift(parseInt(match[2]));
-                htmlTabla += `<tr class="border-t"><td class="p-2">${match[1]}</td><td class="p-2 font-bold">${match[2]} kWh</td></tr>`;
+            while ((m = regexHis.exec(t)) !== null) {
+                labels.unshift(m[1]);
+                valores.unshift(parseInt(m[2]));
+                rows += `<tr><td class="p-3 text-slate-600">${m[1]}</td><td class="p-3 text-right font-bold text-green-700">${m[2]} kWh</td></tr>`;
             }
 
-            // Actualizar Interfaz
+            // Actualizar UI
             document.getElementById('dashboard').classList.remove('hidden');
-            document.getElementById('txtKwh').innerText = kwh + " kWh";
-            document.getElementById('txtPago').innerText = "$" + pago;
-            document.getElementById('txtPeriodo').innerText = periodo;
-            document.getElementById('tablaHistorial').innerHTML = htmlTabla;
+            document.getElementById('resKwh').innerText = kwh + " kWh";
+            document.getElementById('resPago').innerText = pago;
+            document.getElementById('resPeriodo').innerText = periodo;
+            document.getElementById('tablaCuerpo').innerHTML = rows || "<tr><td colspan='2' class='p-3 text-center'>No se detectó historial</td></tr>";
 
-            // Dibujar Gráfica
-            if(chart) chart.destroy();
-            const ctx = document.getElementById('grafica').getContext('2d');
-            chart = new Chart(ctx, {
-                type: 'bar',
+            // Gráfica
+            if(miGrafica) miGrafica.destroy();
+            const ctx = document.getElementById('graficaConsumo').getContext('2d');
+            miGrafica = new Chart(ctx, {
+                type: 'line',
                 data: {
-                    labels: labels.slice(-6), // Mostrar últimos 6
-                    datasets: [{ label: 'kWh', data: valores.slice(-6), backgroundColor: '#16a34a' }]
+                    labels: labels.length > 0 ? labels : ['Actual'],
+                    datasets: [{
+                        label: 'Histórico kWh',
+                        data: valores.length > 0 ? valores : [parseInt(kwh)],
+                        borderColor: '#16a34a',
+                        backgroundColor: 'rgba(22, 163, 74, 0.1)',
+                        fill: true,
+                        tension: 0.3
+                    }]
                 },
                 options: { responsive: true, maintainAspectRatio: false }
             });
