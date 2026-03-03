@@ -1,146 +1,409 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Analizador CFE Universal V5</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta charset="UTF-8">
+  <title>Analizador CFE Universal V6.2 (Desglose + Gráficas)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
+
 <body class="bg-gray-100 p-4 md:p-8 font-sans text-slate-800">
-    <div class="max-w-4xl mx-auto bg-white p-6 rounded-3xl shadow-xl border-t-8 border-green-600">
-        <h1 class="text-2xl font-black text-center mb-6">ANALIZADOR DE CONSUMO CFE</h1>
-        
-        <div class="bg-slate-50 p-6 rounded-2xl border-2 border-dashed border-slate-200 mb-8 text-center">
-            <input type="file" id="pdfInput" accept="application/pdf" class="cursor-pointer font-bold text-green-700"/>
-            <p class="text-[10px] text-slate-400 mt-2 uppercase">Sube cualquier recibo digital o escaneado</p>
-        </div>
+  <div class="max-w-4xl mx-auto bg-white p-6 rounded-3xl shadow-xl border-t-8 border-green-600">
+    <h1 class="text-2xl font-black text-center mb-2">ANALIZADOR DE CONSUMO CFE</h1>
+    <p class="text-center text-xs text-slate-500 mb-6">
+      V6.2: si no hay “historial”, muestra y grafica el <b>DESGLOSE</b> (Básico/Intermedio/Excedente).
+    </p>
 
-        <div id="dashboard" class="hidden space-y-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="bg-green-600 text-white p-6 rounded-2xl shadow-lg">
-                    <p class="text-xs font-bold uppercase opacity-80">Pago Total</p>
-                    <p id="txtPago" class="text-5xl font-black">--</p>
-                </div>
-                <div class="bg-blue-700 text-white p-6 rounded-2xl shadow-lg">
-                    <p class="text-xs font-bold uppercase opacity-80">Consumo Actual (kWh)</p>
-                    <p id="txtKwh" class="text-5xl font-black">--</p>
-                </div>
-            </div>
-
-            <div class="bg-white p-4 rounded-2xl border border-slate-200">
-                <p class="text-[10px] font-bold text-slate-400 mb-1 uppercase">Periodo Identificado</p>
-                <p id="txtPeriodo" class="text-lg font-bold text-slate-700">--</p>
-            </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div class="bg-slate-50 p-4 rounded-2xl">
-                    <h3 class="text-xs font-black text-slate-400 mb-4 uppercase">Gráfica de Consumo (kWh)</h3>
-                    <div class="h-64"><canvas id="grafica"></canvas></div>
-                </div>
-                <div class="bg-white p-4 rounded-2xl border">
-                    <h3 class="text-xs font-black text-slate-400 mb-4 uppercase">Historial Detectado</h3>
-                    <div class="overflow-y-auto h-60">
-                        <table class="w-full text-sm">
-                            <tbody id="tablaHistorial" class="divide-y divide-slate-100"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="bg-slate-50 p-6 rounded-2xl border-2 border-dashed border-slate-200 mb-4 text-center">
+      <input type="file" id="pdfInput" accept="application/pdf" class="cursor-pointer font-bold text-green-700"/>
+      <p class="text-[10px] text-slate-400 mt-2 uppercase">Sube recibo digital (con texto)</p>
     </div>
 
-    <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-        let chartInstance = null;
+    <div class="flex flex-col md:flex-row gap-3 md:items-center md:justify-between mb-6">
+      <label class="flex items-center gap-2 text-xs font-bold text-slate-600">
+        <input id="chkAllPages" type="checkbox" class="scale-110">
+        Leer todas las páginas (más lento)
+      </label>
 
-        document.getElementById('pdfInput').addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
+      <div class="w-full md:w-1/2">
+        <div class="h-2 bg-slate-200 rounded-full overflow-hidden">
+          <div id="bar" class="h-2 w-0 bg-green-600 transition-all"></div>
+        </div>
+        <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+          <span id="status">En espera</span>
+          <span id="pct">0%</span>
+        </div>
+      </div>
+    </div>
 
-            // REINICIO TOTAL DE LA PÁGINA
-            document.getElementById('dashboard').classList.add('hidden');
-            document.getElementById('tablaHistorial').innerHTML = "";
-            if(chartInstance) chartInstance.destroy();
+    <div id="dashboard" class="hidden space-y-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-green-600 text-white p-6 rounded-2xl shadow-lg">
+          <p class="text-xs font-bold uppercase opacity-80">Pago Total</p>
+          <p id="txtPago" class="text-5xl font-black">--</p>
+        </div>
+        <div class="bg-blue-700 text-white p-6 rounded-2xl shadow-lg">
+          <p class="text-xs font-bold uppercase opacity-80">Consumo Total Periodo (kWh)</p>
+          <p id="txtKwh" class="text-5xl font-black">--</p>
+        </div>
+      </div>
 
-            const reader = new FileReader();
-            reader.onload = async function() {
-                const pdf = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
-                let fullText = "";
-                for(let i=1; i<=pdf.numPages; i++) {
-                    const page = await pdf.getPage(i);
-                    const content = await page.getTextContent();
-                    fullText += content.items.map(s => s.str).join(" ") + " \n ";
-                }
-                procesar(fullText);
-            };
-            reader.readAsArrayBuffer(file);
-        });
+      <div class="bg-white p-4 rounded-2xl border border-slate-200">
+        <p class="text-[10px] font-bold text-slate-400 mb-1 uppercase">Periodo Identificado</p>
+        <p id="txtPeriodo" class="text-lg font-bold text-slate-700">--</p>
+      </div>
 
-        function procesar(text) {
-            // 1. Extraer Pago (Evitar capturar kWh)
-            const pagoMatch = text.match(/TOTAL A PAGAR:?\s*\$?\s*([\d,]+)/i);
-            const pago = pagoMatch ? `$${pagoMatch[1]}` : "No hallado";
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-slate-50 p-4 rounded-2xl">
+          <h3 class="text-xs font-black text-slate-400 mb-4 uppercase">Gráficas</h3>
+          <div class="h-64"><canvas id="grafica"></canvas></div>
+          <p id="notaGraf" class="text-[10px] text-slate-400 mt-2"></p>
+        </div>
 
-            // 2. Extraer kWh Actual (Evitar capturar dinero)
-            // Buscamos el número que viene después de "Total periodo" o antes de "kWh" que no tenga "$" cerca
-            let kwh = "0";
-            const kwhMatch = text.match(/Total\s+periodo\s+(\d+)/i) || 
-                             text.match(/Energia\s*\(kWh\).*?(\d+)\s*\n?/i) ||
-                             text.match(/(\d+)\s*kWh/i);
-            kwh = kwhMatch ? kwhMatch[1].replace(/,/g, '') : "0";
+        <div class="bg-white p-4 rounded-2xl border">
+          <h3 class="text-xs font-black text-slate-400 mb-4 uppercase">Detalle Detectado</h3>
+          <div class="overflow-y-auto h-60">
+            <table class="w-full text-sm">
+              <tbody id="tablaHistorial" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+          <p class="text-[10px] text-slate-400 mt-2">
+            Si el recibo no trae histórico de periodos anteriores, aquí verás el desglose del periodo actual.
+          </p>
+        </div>
+      </div>
 
-            // 3. Extraer Periodo
-            const perMatch = text.match(/PERIODO FACTURADO:\s*([\d\s\w-]{10,30})/i);
-            const periodo = perMatch ? perMatch[1].trim() : "Ver en recibo";
+      <details class="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+        <summary class="cursor-pointer text-xs font-black text-slate-500 uppercase">Ver texto extraído (depuración)</summary>
+        <pre id="rawText" class="mt-3 text-[11px] whitespace-pre-wrap text-slate-600"></pre>
+      </details>
+    </div>
+  </div>
 
-            // 4. Extraer Historial de la tabla (Fecha y kWh solamente)
-            const historial = [];
-            // Regex que busca una fecha y un número que NO sea precio (seguido de $)
-            const regexHis = /(\d{2}\s[A-Z]{3}\s\d{2})\s+(\d{1,4})\s+(?:\$|MXN)/gi;
-            let m;
-            while ((m = regexHis.exec(text)) !== null) {
-                historial.push({ fecha: m[1], valor: parseInt(m[2]) });
-            }
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
 
-            // Limpiar historial de duplicados y ordenar
-            const historialLimpio = historial.slice(0, 7).reverse();
-            
-            // Si el actual no está en el historial, lo agregamos al final para la gráfica
-            if(parseInt(kwh) > 0) {
-                historialLimpio.push({ fecha: 'Actual', valor: parseInt(kwh) });
-            }
+    let chartInstance = null;
+    const $ = (id) => document.getElementById(id);
 
-            // Mostrar Interfaz
-            document.getElementById('dashboard').classList.remove('hidden');
-            document.getElementById('txtKwh').innerText = kwh;
-            document.getElementById('txtPago').innerText = pago;
-            document.getElementById('txtPeriodo').innerText = periodo;
+    function setProgress(p, msg){
+      const pct = Math.max(0, Math.min(100, Math.round(p)));
+      $("bar").style.width = pct + "%";
+      $("pct").innerText = pct + "%";
+      $("status").innerText = msg || "Procesando…";
+    }
 
-            let htmlRows = "";
-            historialLimpio.forEach(h => {
-                htmlRows = `<tr class="border-b"><td class="py-3 text-slate-500">${h.fecha}</td><td class="py-3 text-right font-bold text-blue-600">${h.valor} kWh</td></tr>` + htmlRows;
-            });
-            document.getElementById('tablaHistorial').innerHTML = htmlRows;
+    function resetUI(){
+      $("dashboard").classList.add("hidden");
+      $("tablaHistorial").innerHTML = "";
+      $("rawText").innerText = "";
+      $("notaGraf").innerText = "";
+      if (chartInstance) chartInstance.destroy();
+      setProgress(0, "En espera");
+    }
 
-            // Gráfica con datos de kWh unicamente
-            const ctx = document.getElementById('grafica').getContext('2d');
-            chartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: historialLimpio.map(h => h.fecha),
-                    datasets: [{
-                        label: 'Consumo kWh',
-                        data: historialLimpio.map(h => h.valor),
-                        borderColor: '#1d4ed8',
-                        backgroundColor: 'rgba(29, 78, 216, 0.1)',
-                        fill: true,
-                        tension: 0.4
-                    }]
-                },
-                options: { responsive: true, maintainAspectRatio: false }
-            });
+    async function extractTextFromPage(pdf, pageNumber){
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      return content.items.map(s => s.str).join(" ");
+    }
+
+    async function extractTextFromAllPages(pdf){
+      let fullText = "";
+      for (let i = 1; i <= pdf.numPages; i++){
+        setProgress((i / pdf.numPages) * 80, "Leyendo página " + i + " de " + pdf.numPages);
+        fullText += (await extractTextFromPage(pdf, i)) + "\n";
+      }
+      return fullText;
+    }
+
+    function cleanSpaces(s){ return (s||"").replace(/\s+/g," ").trim(); }
+    function cleanInt(s){ return (s||"").replace(/[^\d,]/g,"").replace(/,/g,""); }
+
+    function parsePago(text){
+      const patterns = [
+        /TOTAL\s+A\s+PAGAR[:\s]\$?\s([\d,]+(?:\.\d{2})?)/i,
+        /IMPORTE\s+A\s+PAGAR[:\s]\$?\s([\d,]+(?:\.\d{2})?)/i,
+        /PAGO\s+TOTAL[:\s]\$?\s([\d,]+(?:\.\d{2})?)/i
+      ];
+      for (const re of patterns){
+        const m = text.match(re);
+        if (m) return "$" + m[1];
+      }
+      return "No hallado";
+    }
+
+    function parsePeriodo(text){
+      let m = text.match(/PERIODO\s+FACTURADO[:\s]([0-9]{1,2}\s+[A-Z]{3}\s+[0-9]{2})\s-\s*([0-9]{1,2}\s+[A-Z]{3}\s+[0-9]{2})/i);
+      if (m) return cleanSpaces(m[1] + " - " + m[2]);
+
+      m = text.match(/PERIODO\s+FACTURADO[:\s]*([\s\S]{5,60}?)(?=\s+(TOTAL|TARIFA|CORTE|RFC|CUENTA|NO\.\s*DE|N[ÚU]MERO))/i);
+      if (m) return cleanSpaces(m[1]);
+
+      return "Ver en recibo";
+    }
+
+    // Detecta total kWh del periodo
+    function parseKwhTotal(text){
+      // patrón típico: "1,013 775 238 Basico"
+      let m = text.match(/(\d{1,3}(?:,\d{3})+|\d{3,5})\s+(\d{1,3}(?:,\d{3})+|\d{1,5})\s+(\d{1,3}(?:,\d{3})+|\d{1,5})\s+Basico/i);
+      if (m){
+        const total = parseInt(cleanInt(m[1]), 10);
+        if (Number.isFinite(total) && total > 0) return total;
+      }
+
+      // fallback: cualquier "#### kWh" razonable, toma el más grande
+      const cand = [];
+      const re = /(\d{1,3}(?:,\d{3})+|\d{1,5})\s*KWH\b/gi;
+      while ((m = re.exec(text)) !== null){
+        const val = parseInt(cleanInt(m[1]), 10);
+        if (Number.isFinite(val) && val >= 10 && val <= 50000){
+          const around = text.slice(Math.max(0,m.index-20), Math.min(text.length,m.index+25)).toUpperCase();
+          if (!around.includes("MXN") && !around.includes("IVA") && !around.includes("$")) cand.push(val);
         }
-    </script>
+      }
+      if (cand.length) return Math.max(...cand);
+
+      return 0;
+    }
+
+    // ✅ NUEVO: desglose básico/intermedio/excedente
+    function parseDesglose(text){
+      // Muchos recibos: "1,013 775 238 Basico ... 1.110 ... Intermedio ... 1.349 ... Excedente"
+      // Nos quedamos con los 3 números antes de "Basico"
+      let m = text.match(/(\d{1,3}(?:,\d{3})+|\d{3,5})\s+(\d{1,3}(?:,\d{3})+|\d{1,5})\s+(\d{1,3}(?:,\d{3})+|\d{1,5})\s+Basico/i);
+      if (m){
+        const total = parseInt(cleanInt(m[1]), 10) || 0;
+        const basico = parseInt(cleanInt(m[2]), 10) || 0;
+        const inter = parseInt(cleanInt(m[3]), 10) || 0;
+
+        // Excedente a veces no viene en ese bloque (puede ser 0)
+        // Intentamos detectar "Excedente <num>" si aparece
+        let exced = 0;
+        let ex = text.match(/Excedente\s+(\d{1,3}(?:,\d{3})+|\d{1,5})/i);
+        if (ex) exced = parseInt(cleanInt(ex[1]), 10) || 0;
+
+        // Si total no coincide, recomputar: total = basico+inter+exced
+        const sum = basico + inter + exced;
+        const totalFinal = (total > 0 ? total : sum);
+
+        return { total: totalFinal, basico, intermedio: inter, excedente: exced };
+      }
+
+      // Alternativa: buscar "Basico 775" "Intermedio 238" "Excedente 0"
+      const get = (name) => {
+        const r = new RegExp(name + "\\s*[:\\-]?\\s*(\\d{1,3}(?:,\\d{3})+|\\d{1,5})", "i");
+        const mm = text.match(r);
+        return mm ? (parseInt(cleanInt(mm[1]), 10) || 0) : 0;
+      };
+      const bas = get("Basico");
+      const inter = get("Intermedio");
+      const exc = get("Excedente");
+      const total = bas + inter + exc;
+
+      if (total > 0) return { total, basico: bas, intermedio: inter, excedente: exc };
+
+      return null;
+    }
+
+    // Histórico real (si existiera)
+    function parseHistorial(text){
+      const historial = [];
+      let m;
+      const reA = /([A-Z]{3,}\s+\d{4})\s+(\d{1,5})\s*KWH/gi;
+      while ((m = reA.exec(text)) !== null){
+        historial.push({ fecha: m[1].trim(), valor: parseInt(m[2], 10) });
+      }
+      const seen = new Set();
+      const unique = [];
+      for (const it of historial){
+        const key = it.fecha + "-" + it.valor;
+        if (!seen.has(key)){
+          seen.add(key);
+          unique.push(it);
+        }
+      }
+      return unique;
+    }
+
+    function row(label, value){
+      return `<tr class="border-b">
+        <td class="py-3 text-slate-500">${label}</td>
+        <td class="py-3 text-right font-bold text-blue-600">${value}</td>
+      </tr>`;
+    }
+
+    function pintarDetalle(desglose, historial, totalKwh){
+      let html = "";
+
+      if (desglose){
+        html += row("Total periodo", desglose.total + " kWh");
+        html += row("Básico", desglose.basico + " kWh");
+        html += row("Intermedio", desglose.intermedio + " kWh");
+        html += row("Excedente", desglose.excedente + " kWh");
+      } else {
+        html += row("Total periodo", totalKwh + " kWh");
+      }
+
+      if (historial.length){
+        html += <tr><td class="py-3 text-slate-400 text-xs" colspan="2">Histórico detectado</td></tr>;
+        historial.slice(0,8).forEach(h => { html += row(h.fecha, h.valor + " kWh"); });
+      }
+
+      $("tablaHistorial").innerHTML = html;
+    }
+
+    function pintarGrafica(desglose, historial, totalKwh){
+      const ctx = $("grafica").getContext("2d");
+      if (chartInstance) chartInstance.destroy();
+
+      // Si hay desglose, grafica barras del periodo actual
+      if (desglose){
+        $("notaGraf").innerText = "Gráfica del desglose del periodo actual (Básico/Intermedio/Excedente).";
+        chartInstance = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: ["Básico", "Intermedio", "Excedente", "Total"],
+            datasets: [{
+              label: "kWh",
+              data: [desglose.basico, desglose.intermedio, desglose.excedente, desglose.total],
+              backgroundColor: [
+                "rgba(34,197,94,.35)",
+                "rgba(59,130,246,.35)",
+                "rgba(249,115,22,.35)",
+                "rgba(29,78,216,.20)"
+              ],
+              borderColor: [
+                "rgba(34,197,94,.9)",
+                "rgba(59,130,246,.9)",
+                "rgba(249,115,22,.9)",
+                "rgba(29,78,216,.8)"
+              ],
+              borderWidth: 2
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+          }
+        });
+        return;
+      }
+
+      // Si hay histórico real, grafica línea
+      if (historial.length >= 2){
+        $("notaGraf").innerText = "Gráfica del histórico detectado (si el recibo lo trae en texto).";
+        const data = historial.slice(0,10).reverse();
+        chartInstance = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: data.map(x => x.fecha),
+            datasets: [{
+              label: "kWh",
+              data: data.map(x => x.valor),
+              borderColor: "#1d4ed8",
+              backgroundColor: "rgba(29,78,216,0.10)",
+              fill: true,
+              tension: 0.35
+            }]
+          },
+          options: { responsive: true, maintainAspectRatio: false }
+        });
+        return;
+      }
+
+      // Solo total actual
+      $("notaGraf").innerText = "Solo se detectó el consumo total del periodo (no hay histórico en el PDF).";
+      chartInstance = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: ["Actual"],
+          datasets: [{
+            label: "kWh",
+            data: [totalKwh || 0],
+            borderColor: "#1d4ed8",
+            backgroundColor: "rgba(29,78,216,0.10)",
+            borderWidth: 2
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins:{legend:{display:false}} }
+      });
+    }
+
+    function procesar(text){
+      setProgress(90, "Procesando datos…");
+      $("rawText").innerText = text;
+
+      const pago = parsePago(text);
+      const periodo = parsePeriodo(text);
+      const totalKwh = parseKwhTotal(text);
+
+      const desglose = parseDesglose(text);
+      const historial = parseHistorial(text);
+
+      $("dashboard").classList.remove("hidden");
+      $("txtPago").innerText = pago;
+      $("txtKwh").innerText = String(desglose ? desglose.total : totalKwh);
+      $("txtPeriodo").innerText = periodo;
+
+      pintarDetalle(desglose, historial, totalKwh);
+      pintarGrafica(desglose, historial, totalKwh);
+
+      setProgress(100, "Listo");
+    }
+
+    $("pdfInput").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      resetUI();
+      setProgress(3, "Cargando PDF…");
+
+      const readAll = $("chkAllPages").checked;
+      const reader = new FileReader();
+
+      reader.onload = async function(){
+        try{
+          setProgress(10, "Abriendo documento…");
+          const pdf = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
+
+          let fullText = "";
+          if (readAll){
+            fullText = await extractTextFromAllPages(pdf);
+          } else {
+            setProgress(40, "Leyendo 1ra página…");
+            fullText = await extractTextFromPage(pdf, 1);
+          }
+
+          if (!fullText || fullText.trim().length < 10){
+            setProgress(100, "No se detectó texto (PDF escaneado). Requiere OCR.");
+            $("dashboard").classList.remove("hidden");
+            $("txtPago").innerText = "No hallado";
+            $("txtKwh").innerText = "0";
+            $("txtPeriodo").innerText = "PDF escaneado (requiere OCR)";
+            $("rawText").innerText = "(Sin texto extraíble con PDF.js)";
+            $("tablaHistorial").innerHTML =
+              row("Tip", "Si tu PDF es escaneado, necesitas OCR (Tesseract).");
+            return;
+          }
+
+          fullText = fullText.replace(/\s+/g, " ").trim();
+          procesar(fullText);
+
+        } catch(err){
+          console.error(err);
+          setProgress(0, "Error leyendo el PDF (ver consola)");
+        }
+      };
+
+      reader.readAsArrayBuffer(file);
+    });
+
+    resetUI();
+  </script>
 </body>
 </html>
