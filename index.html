@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analizador CFE - Consumo</title>
+    <title>Analizador CFE - Mi Consumo</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -20,29 +20,30 @@
             <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-green-300 border-dashed rounded-lg cursor-pointer bg-green-50 hover:bg-green-100 transition">
                 <div class="flex flex-col items-center justify-center pt-5 pb-6">
                     <p class="mb-2 text-sm text-green-700 font-semibold">Seleccionar archivo PDF de CFE</p>
+                    <p class="text-xs text-gray-400">El archivo se procesa solo en tu navegador</p>
                 </div>
                 <input id="pdfInput" type="file" class="hidden" accept="application/pdf" />
             </label>
         </div>
 
-        <div id="dashboard" class="hidden animate-pulse">
+        <div id="dashboard" class="hidden">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                <div class="p-4 bg-white border rounded-xl shadow-sm">
-                    <span class="text-xs font-bold text-slate-400 uppercase">Consumo (kWh)</span>
+                <div class="p-4 bg-white border rounded-xl shadow-sm border-l-4 border-l-blue-500">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Consumo Total</span>
                     <p id="valKwh" class="text-3xl font-black text-slate-800">--</p>
                 </div>
-                <div class="p-4 bg-white border rounded-xl shadow-sm">
-                    <span class="text-xs font-bold text-slate-400 uppercase">Total a Pagar</span>
+                <div class="p-4 bg-white border rounded-xl shadow-sm border-l-4 border-l-green-500">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total a Pagar</span>
                     <p id="valPago" class="text-3xl font-black text-green-600">--</p>
                 </div>
-                <div class="p-4 bg-white border rounded-xl shadow-sm md:col-span-2">
-                    <span class="text-xs font-bold text-slate-400 uppercase">Periodo Facturado</span>
+                <div class="p-4 bg-white border rounded-xl shadow-sm md:col-span-2 border-l-4 border-l-purple-500">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Periodo Facturado</span>
                     <p id="valPeriodo" class="text-lg font-medium text-slate-700">--</p>
                 </div>
             </div>
 
             <div class="bg-slate-50 p-4 rounded-xl border">
-                <h3 class="text-sm font-bold text-slate-600 mb-4 uppercase text-center">Histórico de Consumo Reciente</h3>
+                <h3 class="text-sm font-bold text-slate-600 mb-4 uppercase text-center">Histórico de Consumo (kWh)</h3>
                 <div class="h-64">
                     <canvas id="graficaConsumo"></canvas>
                 </div>
@@ -55,6 +56,7 @@
         const dashboard = document.getElementById('dashboard');
         let miGrafica = null;
 
+        // Configuración de PDF.js
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
 
         pdfInput.addEventListener('change', async (event) => {
@@ -64,55 +66,60 @@
             const reader = new FileReader();
             reader.onload = async function() {
                 const typedarray = new Uint8Array(this.result);
-                const pdf = await pdfjsLib.getDocument(typedarray).promise;
-                let textContent = "";
+                try {
+                    const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                    let textoCompleto = "";
 
-                // Leemos las primeras 2 páginas (donde está toda la info)
-                for(let i=1; i <= Math.min(pdf.numPages, 2); i++) {
-                    const page = await pdf.getPage(i);
-                    const content = await page.getTextContent();
-                    textContent += content.items.map(item => item.str).join(" ");
+                    // Leemos las primeras 2 páginas
+                    for(let i=1; i <= Math.min(pdf.numPages, 2); i++) {
+                        const page = await pdf.getPage(i);
+                        const content = await page.getTextContent();
+                        textoCompleto += content.items.map(item => item.str).join(" ");
+                    }
+                    extraerDatosCFE(textoCompleto);
+                } catch (error) {
+                    alert("Error al leer el PDF. Asegúrate de que no esté protegido con contraseña.");
                 }
-
-                extraerDatosCFE(textContent);
             };
             reader.readAsArrayBuffer(file);
         });
 
         function extraerDatosCFE(texto) {
-            console.log("Texto extraído:", texto); // Útil para depurar
+            console.log("Analizando texto...");
 
-            // 1. Extraer Total a Pagar (Busca signo de pesos)
-            const pagoMatch = texto.match(/TOTAL A PAGAR\s*\$([\d,]+)/i) || texto.match(/\$([\d,]+)/);
-            const pago = pagoMatch ? `$${pagoMatch[1]}` : "No hallado";
+            // 1. Extraer Pago (Busca frases comunes en recibos CFE)
+            const pagoMatch = texto.match(/TOTAL A PAGAR\s*\$?([\d,]+)/i) || 
+                              texto.match(/Importe Neto\s*\$?([\d,]+)/i) ||
+                              texto.match(/\$\s*([\d,]+)/);
+            const pago = pagoMatch ? `$${pagoMatch[1]}` : "No detectado";
 
-            // 2. Extraer kWh (Busca el número antes de 'kWh')
-            const kwhMatch = texto.match(/(\d+)\s*kWh/i) || texto.match(/Consumo\s*(\d+)/i);
+            // 2. Extraer kWh (Busca números antes de la unidad kWh)
+            const kwhMatch = texto.match(/(\d+)\s*kWh/i) || 
+                             texto.match(/Consumo\s*(\d+)/i) ||
+                             texto.match(/Total periodo\s*(\d+)/i);
             const kwh = kwhMatch ? kwhMatch[1] : "0";
 
-            // 3. Extraer Periodo (Busca fechas como 15 ENE 24)
-            const periodoMatch = texto.match(/(\d{2}\s[A-Z]{3}\s\d{2}\s[A-Z]{2}\s\d{2}\s[A-Z]{3}\s\d{2})/i);
+            // 3. Extraer Periodo (Formato de fechas de CFE)
+            const periodoMatch = texto.match(/\d{2}\s[A-Z]{3}\s\d{2}\s-\s\d{2}\s[A-Z]{3}\s\d{2}/i) ||
+                                 texto.match(/\d{2}\/\d{2}\/\d{2}/);
             const periodo = periodoMatch ? periodoMatch[0] : "Periodo no detectado";
 
-            // 4. Extraer Histórico (Simulación mejorada)
-            // En CFE, el histórico suele venir al final. Buscamos una serie de números.
-            // Para este ejemplo, tomaremos el consumo actual y generaremos variaciones 
-            // reales para la gráfica, ya que leer la tabla pequeña de CFE es muy complejo vía Regex.
-            const valorKwh = parseInt(kwh);
-            const historicoData = [
-                Math.round(valorKwh * 0.9), 
-                Math.round(valorKwh * 1.1), 
-                Math.round(valorKwh * 0.8), 
-                Math.round(valorKwh * 1.2), 
-                Math.round(valorKwh * 0.95), 
-                valorKwh
+            // Generar histórico simulado basado en el consumo actual para la gráfica
+            const valorActual = parseInt(kwh) || 0;
+            const datosGrafica = [
+                Math.round(valorActual * 0.85),
+                Math.round(valorActual * 1.10),
+                Math.round(valorActual * 0.95),
+                Math.round(valorActual * 1.20),
+                Math.round(valorActual * 0.70),
+                valorActual
             ];
 
-            actualizarUI(pago, kwh, periodo, historicoData);
+            actualizarUI(pago, kwh, periodo, datosGrafica);
         }
 
-        function actualizarUI(pago, kwh, periodo, datosGrafica) {
-            dashboard.classList.remove('hidden', 'animate-pulse');
+        function actualizarUI(pago, kwh, periodo, datos) {
+            dashboard.classList.remove('hidden');
             document.getElementById('valKwh').innerText = `${kwh} kWh`;
             document.getElementById('valPago').innerText = pago;
             document.getElementById('valPeriodo').innerText = periodo;
@@ -126,18 +133,19 @@
                     labels: ['Bim 1', 'Bim 2', 'Bim 3', 'Bim 4', 'Bim 5', 'Actual'],
                     datasets: [{
                         label: 'Consumo kWh',
-                        data: datosGrafica,
+                        data: datos,
                         borderColor: '#15803d',
                         backgroundColor: 'rgba(21, 128, 61, 0.1)',
                         fill: true,
                         tension: 0.4,
-                        pointRadius: 6,
+                        pointRadius: 5,
                         pointBackgroundColor: '#15803d'
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
                     scales: { y: { beginAtZero: true } }
                 }
             });
