@@ -2,47 +2,44 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Analizador CFE Universal V5</title>
+    <title>Analizador CFE V6 - Corrección Total</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body class="bg-gray-100 p-4 md:p-8 font-sans text-slate-800">
-    <div class="max-w-4xl mx-auto bg-white p-6 rounded-3xl shadow-xl border-t-8 border-green-600">
-        <h1 class="text-2xl font-black text-center mb-6">ANALIZADOR DE CONSUMO CFE</h1>
+<body class="bg-slate-100 p-4 md:p-8">
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-3xl shadow-2xl border-t-8 border-green-600">
+        <h1 class="text-2xl font-black text-center text-slate-700 mb-6">ANALIZADOR CFE (VERSIÓN CORREGIDA)</h1>
         
-        <div class="bg-slate-50 p-6 rounded-2xl border-2 border-dashed border-slate-200 mb-8 text-center">
-            <input type="file" id="pdfInput" accept="application/pdf" class="cursor-pointer font-bold text-green-700"/>
-            <p class="text-[10px] text-slate-400 mt-2 uppercase">Sube cualquier recibo digital o escaneado</p>
-        </div>
+        <input type="file" id="pdfInput" accept="application/pdf" class="w-full p-4 border-2 border-dashed rounded-2xl mb-8 hover:bg-slate-50 cursor-pointer"/>
 
         <div id="dashboard" class="hidden space-y-6">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="bg-green-600 text-white p-6 rounded-2xl shadow-lg">
-                    <p class="text-xs font-bold uppercase opacity-80">Pago Total</p>
+                    <p class="text-xs font-bold uppercase opacity-80">Total a Pagar</p>
                     <p id="txtPago" class="text-5xl font-black">--</p>
                 </div>
-                <div class="bg-blue-700 text-white p-6 rounded-2xl shadow-lg">
-                    <p class="text-xs font-bold uppercase opacity-80">Consumo Actual (kWh)</p>
+                <div class="bg-blue-600 text-white p-6 rounded-2xl shadow-lg">
+                    <p class="text-xs font-bold uppercase opacity-80">Consumo (kWh)</p>
                     <p id="txtKwh" class="text-5xl font-black">--</p>
                 </div>
             </div>
 
-            <div class="bg-white p-4 rounded-2xl border border-slate-200">
-                <p class="text-[10px] font-bold text-slate-400 mb-1 uppercase">Periodo Identificado</p>
-                <p id="txtPeriodo" class="text-lg font-bold text-slate-700">--</p>
+            <div class="bg-white p-4 rounded-xl border">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Periodo Facturado</p>
+                <p id="txtPeriodo" class="text-lg font-bold">--</p>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div class="bg-slate-50 p-4 rounded-2xl">
-                    <h3 class="text-xs font-black text-slate-400 mb-4 uppercase">Gráfica de Consumo (kWh)</h3>
+                    <h3 class="text-xs font-bold text-slate-400 mb-4 uppercase tracking-widest">Gráfica de kWh</h3>
                     <div class="h-64"><canvas id="grafica"></canvas></div>
                 </div>
-                <div class="bg-white p-4 rounded-2xl border">
-                    <h3 class="text-xs font-black text-slate-400 mb-4 uppercase">Historial Detectado</h3>
+                <div class="bg-white p-4 rounded-2xl border overflow-hidden">
+                    <h3 class="text-xs font-bold text-slate-400 mb-4 uppercase">Historial de Consumo</h3>
                     <div class="overflow-y-auto h-60">
-                        <table class="w-full text-sm">
-                            <tbody id="tablaHistorial" class="divide-y divide-slate-100"></tbody>
+                        <table class="w-full text-sm text-left">
+                            <tbody id="tablaHistorial" class="divide-y"></tbody>
                         </table>
                     </div>
                 </div>
@@ -52,63 +49,67 @@
 
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-        let chartInstance = null;
+        let chart = null;
 
         document.getElementById('pdfInput').addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
-            // REINICIO TOTAL DE LA PÁGINA
+            // Reiniciar todo
             document.getElementById('dashboard').classList.add('hidden');
-            document.getElementById('tablaHistorial').innerHTML = "";
-            if(chartInstance) chartInstance.destroy();
+            if(chart) chart.destroy();
 
             const reader = new FileReader();
             reader.onload = async function() {
                 const pdf = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
-                let fullText = "";
+                let text = "";
                 for(let i=1; i<=pdf.numPages; i++) {
                     const page = await pdf.getPage(i);
                     const content = await page.getTextContent();
-                    fullText += content.items.map(s => s.str).join(" ") + " \n ";
+                    // Importante: Unimos con espacios y limpiamos saltos de línea locos
+                    text += content.items.map(s => s.str).join(" ") + " ";
                 }
-                procesar(fullText);
+                procesar(text);
             };
             reader.readAsArrayBuffer(file);
         });
 
-        function procesar(text) {
-            // 1. Extraer Pago (Evitar capturar kWh)
-            const pagoMatch = text.match(/TOTAL A PAGAR:?\s*\$?\s*([\d,]+)/i);
+        function procesar(t) {
+            // Limpieza profunda: quitamos saltos de línea y espacios dobles
+            const limpio = t.replace(/\s+/g, ' ');
+
+            // 1. Extraer Pago (Busca números después de TOTAL A PAGAR)
+            const pagoMatch = limpio.match(/TOTAL A PAGAR:?\s*\$?\s*([\d,]+)/i);
             const pago = pagoMatch ? `$${pagoMatch[1]}` : "No hallado";
 
-            // 2. Extraer kWh Actual (Evitar capturar dinero)
-            // Buscamos el número que viene después de "Total periodo" o antes de "kWh" que no tenga "$" cerca
+            // 2. Extraer kWh (Vatios)
+            // Buscamos "Energia (kWh)" y tomamos el número que sigue a las dos lecturas (actual y anterior)
             let kwh = "0";
-            const kwhMatch = text.match(/Total\s+periodo\s+(\d+)/i) || 
-                             text.match(/Energia\s*\(kWh\).*?(\d+)\s*\n?/i) ||
-                             text.match(/(\d+)\s*kWh/i);
-            kwh = kwhMatch ? kwhMatch[1].replace(/,/g, '') : "0";
+            const energySection = limpio.match(/Energia\s*\(kWh\)\s*([\d,.]+)\s*([\d,.]+)\s*([\d,]+)/i);
+            if (energySection) {
+                kwh = energySection[3]; // El tercer número es el "Total Periodo"
+            } else {
+                // Alternativa para otros formatos como el de Lidia
+                const alt = limpio.match(/Total\s+periodo\s+(\d+)/i) || limpio.match(/(\d+)\s*kWh/i);
+                kwh = alt ? alt[1] : "0";
+            }
 
             // 3. Extraer Periodo
-            const perMatch = text.match(/PERIODO FACTURADO:\s*([\d\s\w-]{10,30})/i);
-            const periodo = perMatch ? perMatch[1].trim() : "Ver en recibo";
+            const perMatch = limpio.match(/PERIODO FACTURADO:\s*([\d\sA-Z-]{10,30})/i);
+            const periodo = perMatch ? perMatch[1].trim() : "Detectado";
 
-            // 4. Extraer Historial de la tabla (Fecha y kWh solamente)
+            // 4. Historial (Detección de consumos históricos)
             const historial = [];
-            // Regex que busca una fecha y un número que NO sea precio (seguido de $)
-            const regexHis = /(\d{2}\s[A-Z]{3}\s\d{2})\s+(\d{1,4})\s+(?:\$|MXN)/gi;
+            // Buscamos el patrón "del [FECHA] al [FECHA] [NUMERO] $"
+            const regexHis = /(\d{2}\s[A-Z]{3}\s\d{2})\s+(\d{1,4})\s+\$/gi;
             let m;
-            while ((m = regexHis.exec(text)) !== null) {
+            while ((m = regexHis.exec(limpio)) !== null) {
                 historial.push({ fecha: m[1], valor: parseInt(m[2]) });
             }
 
-            // Limpiar historial de duplicados y ordenar
-            const historialLimpio = historial.slice(0, 7).reverse();
-            
-            // Si el actual no está en el historial, lo agregamos al final para la gráfica
-            if(parseInt(kwh) > 0) {
-                historialLimpio.push({ fecha: 'Actual', valor: parseInt(kwh) });
+            // Si el historial está vacío, agregamos el consumo actual para que la gráfica no esté en blanco
+            if (historial.length === 0 && kwh !== "0") {
+                historial.push({ fecha: 'Actual', valor: parseInt(kwh) });
             }
 
             // Mostrar Interfaz
@@ -117,28 +118,28 @@
             document.getElementById('txtPago').innerText = pago;
             document.getElementById('txtPeriodo').innerText = periodo;
 
-            let htmlRows = "";
-            historialLimpio.forEach(h => {
-                htmlRows = `<tr class="border-b"><td class="py-3 text-slate-500">${h.fecha}</td><td class="py-3 text-right font-bold text-blue-600">${h.valor} kWh</td></tr>` + htmlRows;
+            // Tabla
+            let rows = "";
+            historial.forEach(h => {
+                rows += `<tr class="border-b"><td class="py-3 text-slate-500">${h.fecha}</td><td class="py-3 text-right font-bold text-blue-600">${h.valor} kWh</td></tr>`;
             });
-            document.getElementById('tablaHistorial').innerHTML = htmlRows;
+            document.getElementById('tablaHistorial').innerHTML = rows;
 
-            // Gráfica con datos de kWh unicamente
+            // Gráfica (Solo kWh)
             const ctx = document.getElementById('grafica').getContext('2d');
-            chartInstance = new Chart(ctx, {
+            chart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: historialLimpio.map(h => h.fecha),
+                    labels: historial.map(h => h.fecha).reverse(),
                     datasets: [{
                         label: 'Consumo kWh',
-                        data: historialLimpio.map(h => h.valor),
-                        borderColor: '#1d4ed8',
-                        backgroundColor: 'rgba(29, 78, 216, 0.1)',
+                        data: historial.map(h => h.valor).reverse(),
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
                         fill: true,
                         tension: 0.4
                     }]
-                },
-                options: { responsive: true, maintainAspectRatio: false }
+                }
             });
         }
     </script>
